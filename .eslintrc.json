@@ -1,0 +1,16 @@
+{
+  "extends": [
+    "@rc-foundation/eslint-config-rc",
+    "@rc-foundation/eslint-config-rc/fsd-import"
+  ],
+  "ignorePatterns": ["vite.config.ts"],
+  "rules": {
+    "react-hooks/rules-of-hooks": "off",
+    "import/no-cycle": "off",
+    "default-case": "off",
+    "no-case-declarations": "off",
+    "prefer-destructuring": "off",
+    "complexity": "off"
+  }
+}
+
