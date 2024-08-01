@@ -5,6 +5,11 @@ in vec3 tangent;
 in vec2 uv;
 
 uniform vec3 uPlayer;
+uniform vec3 uViewNormal;
+
+#ifdef NORMAL_MAT
+uniform mat3 normalMat;
+#endif
 
 out vec2 vUv;
 out vec3 vWorldPos;
@@ -18,6 +23,14 @@ void main() {
     vUv = uv;
     vNormal = normal;
     vTangent = tangent;
+
+    #ifdef NORMAL_MAT
+    vNormal = normalize(normalMat * vNormal);
+    vTangent = normalize(normalMat * vTangent);
+    #endif
+
+    vNormal = normalize(viewNormalMat * vNormal);
+    vTangent = normalize(viewNormalMat * vTangent);
 
     vec4 pos = vec4(position, 1.0);
 

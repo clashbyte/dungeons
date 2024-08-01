@@ -1,3 +1,4 @@
+import { StaticObject } from '@/entities/objects/StaticObject.ts';
 import { DecoratedLink, DecoratedRoom } from '../room/RoomGenerator.ts';
 
 export enum LightDefType {
@@ -12,25 +13,30 @@ export interface LightDef {
   type: LightDefType;
 }
 
-export interface MeshSurface {
+export interface TriangulatedSurface {
   vertexData: number[];
   tangentData?: number[];
   indexData: number[];
   indexCount: number;
 }
 
-export interface MeshRoom extends MeshSurface {
+export interface TriangulatedSurfaceGroup {
+  floor: TriangulatedSurface;
+  walls: TriangulatedSurface[];
+  wallOutline?: TriangulatedSurface[];
+}
+
+export interface TriangulatedRoom extends TriangulatedSurfaceGroup {
   decoratedRoom: DecoratedRoom;
   lights: LightDef[];
-  outline?: MeshSurface;
+  scenery: StaticObject[];
 }
 
-export interface MeshLink extends MeshSurface {
+export interface TriangulatedLink extends TriangulatedSurfaceGroup {
   decoratedLink: DecoratedLink;
-  outline?: MeshSurface;
 }
 
-export interface MeshOutlinePart {
+export interface TriangulatedOutlinePart {
   x1: number;
   y1: number;
   x2: number;
@@ -42,9 +48,9 @@ export abstract class RoomTriangulator {
 
   protected baseLinks: DecoratedLink[];
 
-  protected rooms: MeshRoom[];
+  protected rooms: TriangulatedRoom[];
 
-  protected links: MeshLink[];
+  protected links: TriangulatedLink[];
 
   protected constructor(rooms: DecoratedRoom[], links: DecoratedLink[]) {
     this.baseRooms = rooms;

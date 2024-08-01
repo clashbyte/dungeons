@@ -1,10 +1,14 @@
 import Alea from 'alea';
 import { clamp } from '../../helpers/MathUtils.ts';
 import { GeneratorRoom, GeneratorTileType } from '../dungeon/DungeonGenerator.ts';
+import { makeWarehouse } from '@/generators/decoration/patches/Warehouse.ts';
 
-enum LevelType {
+export enum LevelType {
   Church,
   Crypt,
+  Castle,
+  Basement,
+  Cave,
 }
 
 export enum WallHintType {
@@ -12,6 +16,7 @@ export enum WallHintType {
   Torch,
   AccentWall,
   Window,
+  SkipMesh,
 }
 
 export enum FloorHintType {
@@ -19,7 +24,19 @@ export enum FloorHintType {
   LooseTile,
   Cracked,
   Fireplace,
-  SceneryTile,
+  SkipMesh,
+}
+
+export interface SceneryTileHint {
+  x: number;
+  y: number;
+  name: string;
+  group: number;
+  variant: number;
+  solid?: boolean;
+  angle?: number;
+  scale?: number;
+  height?: number;
 }
 
 export type WallHint =
@@ -34,6 +51,9 @@ export type WallHint =
     }
   | {
       type: WallHintType.Window;
+    }
+  | {
+      type: WallHintType.SkipMesh;
     };
 
 export type FloorHint =
@@ -50,16 +70,7 @@ export type FloorHint =
       type: FloorHintType.Fireplace;
     }
   | {
-      type: FloorHintType.SceneryTile;
-      tiles: {
-        name: string;
-        group: number;
-        variant: number;
-        height?: number;
-        angle?: number;
-        x?: number;
-        y?: number;
-      }[];
+      type: FloorHintType.SkipMesh;
     };
 
 export class SimpleRoomDecorator {
@@ -67,13 +78,15 @@ export class SimpleRoomDecorator {
 
   public constructor(
     seed: string,
-    private readonly theme: number,
+    private readonly theme: LevelType,
   ) {
     const alea = Alea(`${seed}_room`);
     this.random = () => alea.next();
   }
 
-  public makeHintMap(room: GeneratorRoom): readonly [FloorHint[][], WallHint[][]] {
+  public makeHintMap(
+    room: GeneratorRoom,
+  ): readonly [FloorHint[][], WallHint[][], SceneryTileHint[], boolean] {
     const floor: FloorHint[][] = Array(room.height)
       .fill(0)
       .map(() =>
@@ -94,16 +107,26 @@ export class SimpleRoomDecorator {
           })),
       );
 
-    this.makeLibrary(room, floor, walls);
-
+    const scenery: SceneryTileHint[] = [];
     this.placeRandomFloor(room, floor);
+
+    const area = room.width * room.height;
+    if (area >= 24) {
+      console.debug('large');
+    } else {
+      console.debug('small');
+
+      makeWarehouse(this.random, room, floor, walls, scenery);
+      // this.makeWarehouse(room, floor, walls, scenery);
+    }
+
     this.placeTorches(room, floor, walls);
 
-    return [floor, walls] as const;
+    return [floor, walls, scenery, this.random() < 0.5] as const;
   }
 
   private placeRandomFloor(room: GeneratorRoom, floor: FloorHint[][]) {
-    if (this.theme === 4) {
+    if (this.theme === LevelType.Cave) {
       return;
     }
     const area = room.width * room.height;
@@ -126,7 +149,7 @@ export class SimpleRoomDecorator {
   }
 
   private placeTorches(room: GeneratorRoom, floor: FloorHint[][], walls: WallHint[][]) {
-    const BLOCK_SIZE = 5;
+    const BLOCK_SIZE = 8;
     const blocksX = Math.ceil(room.width / BLOCK_SIZE);
     const blocksY = Math.ceil(room.height / BLOCK_SIZE);
     const sizeX = Math.ceil(room.width / blocksX);
@@ -246,7 +269,12 @@ export class SimpleRoomDecorator {
     }
   }
 
-  public makeLibrary(room: GeneratorRoom, floor: FloorHint[][], walls: WallHint[][]) {
+  public makeLibrary(
+    room: GeneratorRoom,
+    floor: FloorHint[][],
+    walls: WallHint[][],
+    scenery: SceneryTileHint[],
+  ) {
     for (let i = 0; i < walls[0].length; i++) {
       walls[0][i] = {
         type: WallHintType.AccentWall,
@@ -258,15 +286,18 @@ export class SimpleRoomDecorator {
       };
     }
 
-    floor[1][1] = {
-      type: FloorHintType.SceneryTile,
-      tiles: [
-        {
-          name: 'bookrack',
-          group: 0,
-          variant: 0,
-        },
-      ],
-    };
+    // floor[1][1] = {
+    //   type: FloorHintType.SceneryTile,
+    //   tiles: [
+    //     {
+    //       name: 'jug',
+    //       group: 0,
+    //       variant: 0,
+    //       angle: 0,
+    //       height: 1.565 / 3,
+    //       scale: 1,
+    //     },
+    //   ],
+    // };
   }
 }

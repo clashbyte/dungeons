@@ -1,4 +1,4 @@
-import { mat4, quat, vec2, vec3, vec4 } from 'gl-matrix';
+import { mat3, mat4, quat, vec2, vec3, vec4 } from 'gl-matrix';
 import { CullSphere } from './CullSphere.ts';
 import { Frustum } from './Frustum.ts';
 import { Shader } from './Shader';
@@ -15,6 +15,12 @@ export class Camera {
    * @private
    */
   private static readonly viewMatrix: mat4 = mat4.identity(mat4.create());
+
+  /**
+   * View-space normal matrix
+   * @private
+   */
+  private static readonly viewNormalMatrix: mat3 = mat3.identity(mat3.create());
 
   /**
    * Complete combined matrix
@@ -62,6 +68,17 @@ export class Camera {
    * @private
    */
   private static matrixDirty: boolean = true;
+
+  public static getViewMatrices() {
+    if (this.matrixDirty) {
+      this.updateMatrices();
+    }
+    const normal = mat3.create();
+    mat3.normalFromMat4(normal, this.viewMatrix);
+    // mat4.multiply(position, this.projMatrix, this.viewMatrix);
+
+    return [this.projMatrix, this.viewMatrix, normal] as const;
+  }
 
   /**
    * Get camera position vector
@@ -122,13 +139,14 @@ export class Camera {
    * @param {number} aspect
    */
   public static updateProjection(aspect: number) {
-    mat4.perspective(this.projMatrix, 0.7, aspect, 0.05, 400);
+    mat4.perspective(this.projMatrix, 0.7, aspect, 0.1, 400);
 
     const sizeY = 768;
     const sizeX = sizeY * aspect;
     const diffX = (sizeX - 1024) / 2;
 
     mat4.ortho(this.uiProjMatrix, -diffX, sizeX - diffX, sizeY, 0, -1, 1);
+    this.matrixDirty = true;
     this.updateMatrices();
   }
 
@@ -137,14 +155,14 @@ export class Camera {
    */
   public static bindMatrices() {
     this.updateMatrices();
-    Shader.updateCamera(this.viewMatrix, this.projMatrix);
+    Shader.updateCamera(this.viewMatrix, this.projMatrix, this.viewNormalMatrix);
   }
 
   /**
    * Interface camera
    */
   public static bindUIMatrices() {
-    Shader.updateCamera(EMPTY_MATRIX, this.uiProjMatrix);
+    Shader.updateCamera(EMPTY_MATRIX, this.uiProjMatrix, this.viewNormalMatrix);
   }
 
   /**
@@ -220,6 +238,7 @@ export class Camera {
         this.pos,
       );
       mat4.invert(this.viewMatrix, this.cameraMatrix);
+      mat3.normalFromMat4(this.viewNormalMatrix, this.viewMatrix);
 
       this.frustum.rebuild(this.projMatrix, this.viewMatrix);
 

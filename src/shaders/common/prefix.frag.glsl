@@ -1,9 +1,9 @@
 #version 300 es
-// DEFINE_LIST
+SHADER_DEFINE_LIST;
 #define gl_FragColor outColor
 precision highp float;
 
-#ifdef OFFSCREEN_PASS
+#ifdef DEFERRED_PASS
 layout(location=0) out vec4 fragDiffuse;
 layout(location=1) out vec4 fragPosition;
 layout(location=2) out vec4 fragNormal;

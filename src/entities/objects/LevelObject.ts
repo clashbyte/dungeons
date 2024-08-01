@@ -1,29 +1,34 @@
 import { mat3, mat4, quat, vec2, vec3 } from 'gl-matrix';
 import { CullSphere } from '../../engine/CullSphere.ts';
 import { RenderTask } from '../../engine/Renderer.ts';
-import { ClickableObject } from '../ClickableObject.ts';
 
 /**
  * Object that player can activate
  */
-export abstract class LevelObject extends ClickableObject {
+export abstract class LevelObject {
   /**
    * Position
    * @private
    */
-  private readonly pos: vec2 = vec2.create();
+  private readonly localPosition: vec2 = vec2.create();
 
   /**
    * Angle
    * @private
    */
-  private rot: number = 0;
+  private localRotation: number = 0;
 
   /**
    * Scale
    * @private
    */
-  private scl: number = 1;
+  private localScale: number = 1;
+
+  /**
+   * Elevation
+   * @private
+   */
+  private localHeight: number = 0;
 
   /**
    * Flag for matrix rebuild
@@ -53,7 +58,7 @@ export abstract class LevelObject extends ClickableObject {
    * Get object position
    */
   public get position() {
-    return vec2.clone(this.pos);
+    return vec2.clone(this.localPosition);
   }
 
   /**
@@ -61,8 +66,8 @@ export abstract class LevelObject extends ClickableObject {
    * @param pos
    */
   public set position(pos: vec2) {
-    if (!vec2.equals(pos, this.pos)) {
-      vec2.copy(this.pos, pos);
+    if (!vec2.equals(pos, this.localPosition)) {
+      vec2.copy(this.localPosition, pos);
       this.matrixDirty = true;
     }
   }
@@ -71,7 +76,7 @@ export abstract class LevelObject extends ClickableObject {
    * Get object rotation
    */
   public get rotation() {
-    return this.rot;
+    return this.localRotation;
   }
 
   /**
@@ -79,8 +84,26 @@ export abstract class LevelObject extends ClickableObject {
    * @param rot
    */
   public set rotation(rot: number) {
-    if (rot !== this.rot) {
-      this.rot = rot;
+    if (rot !== this.localRotation) {
+      this.localRotation = rot;
+      this.matrixDirty = true;
+    }
+  }
+
+  /**
+   * Get object elevation
+   */
+  public get height() {
+    return this.localHeight;
+  }
+
+  /**
+   * Update object elevation
+   * @param value
+   */
+  public set height(value: number) {
+    if (value !== this.localHeight) {
+      this.localHeight = value;
       this.matrixDirty = true;
     }
   }
@@ -89,7 +112,7 @@ export abstract class LevelObject extends ClickableObject {
    * Get object scale
    */
   public get scale() {
-    return this.scl;
+    return this.localScale;
   }
 
   /**
@@ -98,7 +121,7 @@ export abstract class LevelObject extends ClickableObject {
    */
   public set scale(scl: number) {
     if (scl !== this.scale) {
-      this.scl = scl;
+      this.localScale = scl;
       this.matrixDirty = true;
     }
   }
@@ -107,7 +130,12 @@ export abstract class LevelObject extends ClickableObject {
    * Culling sphere
    */
   public get cullSphere() {
-    vec3.set(this.sphere.center, this.pos[0], this.sphere.radius, this.pos[1]);
+    vec3.set(
+      this.sphere.center,
+      this.localPosition[0],
+      this.sphere.radius + this.localHeight,
+      this.localPosition[1],
+    );
 
     return this.sphere;
   }
@@ -135,7 +163,7 @@ export abstract class LevelObject extends ClickableObject {
    * Update object logic
    * @param delta
    */
-  public abstract update(delta: number): void;
+  public update(delta: number) {}
 
   /**
    * Get object render tasks
@@ -150,9 +178,9 @@ export abstract class LevelObject extends ClickableObject {
     if (this.matrixDirty) {
       mat4.fromRotationTranslationScale(
         this.mat,
-        quat.setAxisAngle(quat.create(), vec3.fromValues(0, 1, 0), this.rot),
-        vec3.fromValues(this.pos[0], 0, this.pos[1]),
-        vec3.fromValues(this.scl, this.scl, this.scl),
+        quat.setAxisAngle(quat.create(), vec3.fromValues(0, 1, 0), this.localRotation),
+        vec3.fromValues(this.localPosition[0], this.localHeight, this.localPosition[1]),
+        vec3.fromValues(this.localScale, this.localScale, this.localScale),
       );
       mat3.normalFromMat4(this.normalMat, this.mat);
       this.matrixDirty = false;

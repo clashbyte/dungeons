@@ -1,7 +1,7 @@
 import { mat3, mat4, quat, vec2, vec3 } from 'gl-matrix';
-import { CullSphere } from '../../engine/CullSphere.ts';
-import { RenderTask } from '../../engine/Renderer.ts';
-import { clamp, euclideanModulo } from '../../helpers/MathUtils.ts';
+import { CullSphere } from '@/engine/CullSphere.ts';
+import { RenderTask } from '@/engine/Renderer.ts';
+import { clamp, euclideanModulo } from '@/helpers/MathUtils.ts';
 
 /**
  * Base actor class

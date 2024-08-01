@@ -1,7 +1,6 @@
 /* eslint no-await-in-loop: 0 */
 import * as fs from 'fs';
 import * as path from 'node:path';
-import * as ini from 'ini';
 import { BinaryWriter } from './BinaryWriter.ts';
 import { decodeGLTF, GLTFModel } from './decodeGLTF.ts';
 
@@ -59,15 +58,9 @@ function writeMesh(f: BinaryWriter, model: GLTFModel, fileName: string, nodeName
   f.offset = pos;
 }
 
-function writeAnimation(
-  f: BinaryWriter,
-  model: GLTFModel,
-  nodeNames: string[],
-  animIndex: number,
-  nameHint?: string,
-) {
+function writeAnimation(f: BinaryWriter, model: GLTFModel, nodeNames: string[], animIndex: number) {
   const anim = model.animations[animIndex];
-  f.writeString(nameHint || anim.name);
+  f.writeString(anim.name);
   f.writeFloat(anim.length);
 
   f.writeShort(anim.nodes.filter((t) => t.length > 0).length);
@@ -103,55 +96,33 @@ function writeAnimation(
   }
 }
 
-function writeTexture(f: BinaryWriter, texture: ArrayBuffer, name: string) {
-  f.writeString(name);
-  f.writeInt(texture.byteLength);
-
-  const data = new Uint8Array(texture);
-  for (let i = 0; i < data.length; i++) {
-    f.writeByte(data[i]);
-  }
-}
-
 (async () => {
   const buffer = new ArrayBuffer(20 * 1024 * 1024);
   const f = new BinaryWriter(buffer);
-  const config = ini.parse(fs.readFileSync(path.resolve('raw_files/skins/skins.ini'), 'utf-8'));
-  const meshFiles: { [name: string]: GLTFModel } = {};
-  const animationFiles: { [name: string]: { file: GLTFModel; name: string } } = {};
-  const textureFiles: { [name: string]: ArrayBuffer } = {};
+  const modelList = fs
+    .readdirSync(path.resolve('raw_files/skins'))
+    .filter((p) => p.toLowerCase().endsWith('.glb'))
+    .map((p) => [p, fs.readFileSync(path.resolve(`raw_files/skins/${p}`)).buffer] as const)
+    .map(([fname, rawData]) => [fname, decodeGLTF(rawData)] as const);
 
   const nodeNames: string[] = [];
-  for (const name in config.SKINS) {
-    const file = fs.readFileSync(path.resolve(`raw_files/skins/${config.SKINS[name]}`)).buffer;
-    const mesh = decodeGLTF(file);
-    meshFiles[name] = mesh;
-    for (const n of mesh.nodes) {
+  for (const [, m] of modelList) {
+    for (const n of m.nodes) {
       if (!nodeNames.includes(n.name)) {
         nodeNames.push(n.name);
       }
     }
   }
-  for (const name in config.ANIMATIONS) {
-    const [meshName, animName] = config.ANIMATIONS[name].split('@');
-    const file = fs.readFileSync(path.resolve(`raw_files/skins/${meshName}`)).buffer;
-    const mesh = decodeGLTF(file);
-    animationFiles[name] = {
-      file: decodeGLTF(file),
-      name:
-        animName && mesh.animations.find((anim) => anim.name === animName)
-          ? animName
-          : mesh.animations[0].name,
-    };
-    for (const n of mesh.nodes) {
-      if (!nodeNames.includes(n.name)) {
-        nodeNames.push(n.name);
-      }
+
+  let meshCount = 0;
+  let animCount = 0;
+  for (const [, m] of modelList) {
+    if (m.surfaces.length > 0) {
+      meshCount++;
     }
-  }
-  for (const name in config.TEXTURES) {
-    const file = fs.readFileSync(path.resolve(`raw_files/skins/${config.TEXTURES[name]}`)).buffer;
-    textureFiles[name] = file;
+    if (m.animations.length) {
+      animCount += m.animations.length;
+    }
   }
 
   f.writeFixedString('SKIN');
@@ -160,27 +131,20 @@ function writeTexture(f: BinaryWriter, texture: ArrayBuffer, name: string) {
     f.writeString(nn);
   }
 
-  f.writeShort(Object.keys(meshFiles).length);
-  for (const name in meshFiles) {
-    const mesh = meshFiles[name];
-    writeMesh(f, mesh, name, nodeNames);
+  f.writeShort(meshCount);
+  for (const [name, m] of modelList) {
+    if (m.surfaces.length > 0) {
+      writeMesh(f, m, name, nodeNames);
+    }
   }
 
-  f.writeShort(Object.keys(animationFiles).length);
-  for (const name in animationFiles) {
-    const mesh = animationFiles[name];
-    writeAnimation(
-      f,
-      mesh.file,
-      nodeNames,
-      mesh.file.animations.findIndex((anim) => anim.name === mesh.name),
-      name,
-    );
-  }
-
-  f.writeShort(Object.keys(textureFiles).length);
-  for (const name in textureFiles) {
-    writeTexture(f, textureFiles[name], name);
+  f.writeShort(animCount);
+  for (const [, m] of modelList) {
+    if (m.animations.length > 0) {
+      for (let i = 0; i < m.animations.length; i++) {
+        writeAnimation(f, m, nodeNames, i);
+      }
+    }
   }
 
   const outBuffer = new DataView(buffer, 0, f.offset);

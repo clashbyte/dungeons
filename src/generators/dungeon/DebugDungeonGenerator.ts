@@ -11,8 +11,8 @@ export class DebugDungeonGenerator extends DungeonGenerator {
   }
 
   public generate(): void {
-    const ROOM_WIDTH = 10;
-    const ROOM_HEIGHT = 5;
+    const ROOM_WIDTH = 4;
+    const ROOM_HEIGHT = 4;
 
     const r1: GeneratorRoom = {
       x: 2,

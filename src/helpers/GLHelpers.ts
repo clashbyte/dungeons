@@ -42,7 +42,7 @@ export function createIndexBuffer(data: Uint16Array) {
   return buffer;
 }
 
-function createTexture(img: HTMLImageElement, mipmap: boolean = true) {
+export function createTexture(img: HTMLImageElement, mipmap: boolean = true) {
   const tex = GL.createTexture()!;
   GL.bindTexture(GL.TEXTURE_2D, tex);
   GL.texImage2D(

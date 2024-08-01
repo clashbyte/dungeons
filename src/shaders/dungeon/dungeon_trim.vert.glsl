@@ -2,6 +2,7 @@
 in vec3 position;
 
 out vec3 vWorldPos;
+out vec3 vLocalPos;
 out vec3 vClipPos;
 
 void main() {
@@ -9,6 +10,7 @@ void main() {
     pos = modelMat * pos;
     vWorldPos = pos.xyz;
     pos = viewMat * pos;
+    vLocalPos = pos.xyz;
     pos = projMat * pos;
     vClipPos = pos.xyz / pos.w;
 

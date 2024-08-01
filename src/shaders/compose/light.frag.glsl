@@ -5,6 +5,7 @@ uniform sampler2D uShadowMap;
 uniform vec3 uLightPosition;
 uniform vec3 uLightColor;
 uniform float uLightRange;
+uniform mat3 uInverseNormalMat;
 
 in vec4 vUv;
 
@@ -67,7 +68,7 @@ vec2 cubeToUV( vec3 v, float texelSizeY ) {
 
 float sampleShadow(vec3 normal, float len, float nDotL) {
     float dist = texture(uShadowMap, cubeToUV(normal, TEXEL_SIZE)).r;
-    if (dist + 0.05 < len) {
+    if (dist + mix(0.1, 0.01, nDotL) < len) {
         return 0.0;
     }
     return 1.0;
@@ -90,17 +91,18 @@ void main() {
         power *= 1.0 - pow(1.0 - ndotl, 2.0);
 
         #ifdef SHADOW_MAP
-        vec2 offset = vec2(-1, 1) * 2.0 * TEXEL_SIZE;
+        vec3 invdir = uInverseNormalMat * ndir;
+        vec2 offset = vec2(-1, 1) * 1.0 * TEXEL_SIZE;
         power *= (
-                sampleShadow( ndir + offset.xyy, len, ndotl) +
-                sampleShadow( ndir + offset.yyy, len, ndotl) +
-                sampleShadow( ndir + offset.xyx, len, ndotl) +
-                sampleShadow( ndir + offset.yyx, len, ndotl) +
-                sampleShadow( ndir, len, ndotl) +
-                sampleShadow( ndir + offset.xxy, len, ndotl) +
-                sampleShadow( ndir + offset.yxy, len, ndotl) +
-                sampleShadow( ndir + offset.xxx, len, ndotl) +
-                sampleShadow( ndir + offset.yxx, len, ndotl)
+                sampleShadow( invdir + offset.xyy, len, ndotl) +
+                sampleShadow( invdir + offset.yyy, len, ndotl) +
+                sampleShadow( invdir + offset.xyx, len, ndotl) +
+                sampleShadow( invdir + offset.yyx, len, ndotl) +
+                sampleShadow( invdir, len, ndotl) +
+                sampleShadow( invdir + offset.xxy, len, ndotl) +
+                sampleShadow( invdir + offset.yxy, len, ndotl) +
+                sampleShadow( invdir + offset.xxx, len, ndotl) +
+                sampleShadow( invdir + offset.yxx, len, ndotl)
         ) * ( 1.0 / 9.0 );
         #endif
     }

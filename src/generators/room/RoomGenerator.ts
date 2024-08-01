@@ -1,24 +1,25 @@
 import { GeneratorLink, GeneratorRoom, GeneratorTileType } from '../dungeon/DungeonGenerator.ts';
-import { MeshOutlinePart } from '../trimesh/RoomTriangulator.ts';
 
 export type DecoratedTile = {
   x: number;
   y: number;
   height?: number;
   angle?: number;
+  scale?: number;
 
   name: string;
   group: number;
   variant: number;
+  scenery?: boolean;
 };
 
 interface TileContainer {
   tiles: DecoratedTile[];
-  outlines?: MeshOutlinePart[];
 }
 
 export interface DecoratedRoom extends TileContainer {
   generatorRoom: GeneratorRoom;
+  sceneryTiles: DecoratedTile[];
 }
 
 export interface DecoratedLink extends TileContainer {

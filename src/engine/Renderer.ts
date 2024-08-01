@@ -1,4 +1,4 @@
-import { mat4, quat, vec3, vec4 } from 'gl-matrix';
+import { mat3, mat4, quat, vec3, vec4 } from 'gl-matrix';
 import { setDebugText } from '../core/DebugBadge.ts';
 import { GL, screenSize } from '../core/GL.ts';
 import { buildSphere } from '../helpers/BuildSphere.ts';
@@ -8,10 +8,13 @@ import { CullSphere } from './CullSphere.ts';
 import { LightShadow, SHADOW_SIZE } from './LightShadow.ts';
 import { Shader } from './Shader.ts';
 
+import { lerp } from '@/helpers/MathUtils.ts';
 import ComposeFrag from '@/shaders/compose/compose.frag.glsl?raw';
 import ComposeVert from '@/shaders/compose/compose.vert.glsl?raw';
 import SphereFrag from '@/shaders/compose/light.frag.glsl?raw';
 import SphereVert from '@/shaders/compose/light.vert.glsl?raw';
+import SSAOFrag from '@/shaders/compose/ssao.frag.glsl';
+import SSAOVert from '@/shaders/compose/ssao.vert.glsl';
 import WhiteFrag from '@/shaders/compose/white.frag.glsl?raw';
 import WhiteVert from '@/shaders/compose/white.vert.glsl?raw';
 
@@ -48,6 +51,18 @@ export class Renderer {
    * @private
    */
   private static SHADOW_QUOTA = 0;
+
+  /**
+   * Size of a SSAO kernel
+   * @private
+   */
+  private static readonly SSAO_KERNEL_SIZE = 8;
+
+  /**
+   * Size of a SSAO random texture
+   * @private
+   */
+  private static readonly SSAO_NOISE_SIZE = 4;
 
   /**
    * G-pass diffuse texture
@@ -110,6 +125,12 @@ export class Renderer {
   private static outlineBuffer: WebGLFramebuffer;
 
   /**
+   * SSAO buffer
+   * @private
+   */
+  private static ssaoBuffer: WebGLFramebuffer;
+
+  /**
    * Light-pass diffuse texture
    * @private
    */
@@ -120,6 +141,18 @@ export class Renderer {
    * @private
    */
   private static outlineTexture: WebGLTexture;
+
+  /**
+   * SSAO noise random texture
+   * @private
+   */
+  private static ssaoNoiseTexture: WebGLTexture;
+
+  /**
+   * Screen-space SSAO texture
+   * @private
+   */
+  private static ssaoTexture: WebGLTexture;
 
   /**
    * Vertex buffer for light sphere (XYZ)
@@ -158,10 +191,22 @@ export class Renderer {
   private static whiteShader: Shader;
 
   /**
+   * SSAO shader
+   * @private
+   */
+  private static ssaoShader: Shader;
+
+  /**
    * Active light shadows
    * @private
    */
   private static shadows: LightShadow[];
+
+  /**
+   * SSAO tangent vectors kernel
+   * @private
+   */
+  private static ssaoKernel: number[];
 
   /**
    * Renderer time slices for single frame
@@ -187,6 +232,45 @@ export class Renderer {
     this.composeIndexBuffer = createIndexBuffer(new Uint16Array([0, 2, 1, 1, 2, 3]));
     this.composeShader = new Shader(ComposeFrag, ComposeVert);
 
+    this.ssaoKernel = [];
+    for (let i = 0; i < this.SSAO_KERNEL_SIZE; i++) {
+      const vec = vec3.fromValues(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random());
+      vec3.normalize(vec, vec);
+      vec3.scale(vec, vec, lerp(0.1, 1, Math.random() ** 2));
+      this.ssaoKernel.push(vec[0], vec[1], vec[2]);
+    }
+    const ssaoNoise: number[] = [];
+    for (let i = 0; i < this.SSAO_NOISE_SIZE ** 2; i++) {
+      const vec = vec3.fromValues(Math.random() * 2 - 1, Math.random() * 2 - 1, 0);
+      vec3.normalize(vec, vec);
+      ssaoNoise.push(128 * vec[0] * 127, 128 * vec[1] * 127, 0);
+    }
+    this.ssaoNoiseTexture = GL.createTexture()!;
+    GL.bindTexture(GL.TEXTURE_2D, this.ssaoNoiseTexture);
+    GL.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.REPEAT);
+    GL.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.REPEAT);
+    GL.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.NEAREST);
+    GL.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.NEAREST);
+    GL.texImage2D(
+      GL.TEXTURE_2D,
+      0,
+      GL.RGB8,
+      this.SSAO_NOISE_SIZE,
+      this.SSAO_NOISE_SIZE,
+      0,
+      GL.RGB,
+      GL.UNSIGNED_BYTE,
+      new Uint8Array(ssaoNoise),
+    );
+    GL.bindTexture(GL.TEXTURE_2D, null);
+
+    this.ssaoBuffer = GL.createFramebuffer()!;
+    this.ssaoShader = new Shader(SSAOFrag, SSAOVert, {
+      defines: {
+        KERNEL_SIZE: this.SSAO_KERNEL_SIZE,
+      },
+    });
+
     // Building light pass buffers and sphere mesh
     const sphere = buildSphere();
     this.lightSphereBuffer = createVertexBuffer(new Float32Array(sphere.vertices));
@@ -194,19 +278,15 @@ export class Renderer {
     this.lightSphereIndexCount = sphere.indices.length;
     this.lightMapBuffer = GL.createFramebuffer()!;
     this.lightSphereDirectShader = new Shader(SphereFrag, SphereVert);
-    this.lightSphereShadowShader = new Shader(
-      SphereFrag,
-      SphereVert,
-      false,
-      {},
-      {
+    this.lightSphereShadowShader = new Shader(SphereFrag, SphereVert, {
+      defines: {
         SHADOW_MAP: 1,
       },
-    );
+    });
 
     // Building outline buffer
     this.outlineBuffer = GL.createFramebuffer()!;
-    this.whiteShader = new Shader(WhiteFrag, WhiteVert, false);
+    this.whiteShader = new Shader(WhiteFrag, WhiteVert);
 
     // Pull GL extensions
     GL.getExtension('EXT_color_buffer_float');
@@ -215,7 +295,7 @@ export class Renderer {
 
     // Change active shadows quota
     this.shadows = [];
-    this.changeShadowQuota(1);
+    this.changeShadowQuota(8);
   }
 
   /**
@@ -234,6 +314,7 @@ export class Renderer {
       this.depthTexture,
       this.lightMapTexture,
       this.outlineTexture,
+      this.ssaoTexture,
     ]) {
       if (tex) {
         GL.deleteTexture(tex);
@@ -246,6 +327,7 @@ export class Renderer {
     this.positionTexture = this.createAttachment(GL.RGBA16F, GL.COLOR_ATTACHMENT1);
     this.normalTexture = this.createAttachment(GL.RGBA16F, GL.COLOR_ATTACHMENT2);
     this.depthTexture = this.createAttachment(GL.DEPTH24_STENCIL8, GL.DEPTH_STENCIL_ATTACHMENT);
+    // this.depthTexture = this.createAttachment(GL.DEPTH_COMPONENT16, GL.DEPTH_ATTACHMENT);
     GL.drawBuffers([
       GL.COLOR_ATTACHMENT0, //
       GL.COLOR_ATTACHMENT1,
@@ -275,6 +357,17 @@ export class Renderer {
       GL.DEPTH_STENCIL_ATTACHMENT,
       GL.TEXTURE_2D,
       this.depthTexture,
+      0,
+    );
+
+    // SSAO buffer
+    GL.bindFramebuffer(GL.FRAMEBUFFER, this.ssaoBuffer);
+    this.ssaoTexture = this.createAttachment(GL.R8, GL.COLOR_ATTACHMENT0);
+    GL.framebufferTexture2D(
+      GL.FRAMEBUFFER,
+      GL.COLOR_ATTACHMENT0,
+      GL.TEXTURE_2D,
+      this.ssaoTexture,
       0,
     );
 
@@ -411,6 +504,10 @@ export class Renderer {
     }
 
     // G-buffer pass
+    const [, viewMatrix, normalMatrix] = Camera.getViewMatrices();
+    const invNormalMatrix = mat3.clone(normalMatrix);
+    mat3.invert(invNormalMatrix, invNormalMatrix);
+
     time = performance.now();
     GL.bindFramebuffer(GL.FRAMEBUFFER, this.offscreenBuffer);
     this.setupViewport();
@@ -442,7 +539,8 @@ export class Renderer {
     time = performance.now();
     GL.bindFramebuffer(GL.FRAMEBUFFER, this.lightMapBuffer);
     this.setupViewport();
-    GL.clearColor(0.1, 0.1, 0.1, 1.0);
+    GL.clearColor(0.2, 0.2, 0.25, 1.0);
+    // GL.clearColor(1, 1, 1, 1.0);
     GL.clear(GL.COLOR_BUFFER_BIT);
     GL.depthMask(false);
     GL.stencilMask(0x00);
@@ -455,6 +553,9 @@ export class Renderer {
     for (let i = 0; i < lights.length; i++) {
       const light = lights[i];
       const shadowId = shadowLights.indexOf(i);
+      const pos = vec3.clone(light.position);
+      vec3.transformMat4(pos, pos, viewMatrix);
+
       const mat = mat4.fromRotationTranslationScale(mat4.create(), rot, light.position, [
         light.range,
         light.range,
@@ -470,20 +571,33 @@ export class Renderer {
         this.lightSphereShadowShader.setBuffer('position', this.lightSphereBuffer, 3, GL.FLOAT);
         this.lightSphereShadowShader.setTexture('uPosition', this.positionTexture);
         this.lightSphereShadowShader.setTexture('uNormal', this.normalTexture);
-        shadow.setup(this.lightSphereShadowShader);
+        GL.uniformMatrix3fv(
+          this.lightSphereShadowShader.uniform('uInverseNormalMat'),
+          false,
+          invNormalMatrix,
+        );
+        // this.lightSphereShadowShader.setUniforms('uInverseNormalMat', this.normalTexture);
+        shadow.setup(this.lightSphereShadowShader, pos);
         GL.drawElements(GL.TRIANGLES, this.lightSphereIndexCount, GL.UNSIGNED_SHORT, 0);
         this.lightSphereShadowShader.unbind();
       } else {
         this.lightSphereDirectShader.updateMatrix(mat);
 
         this.lightSphereDirectShader.bind();
+        this.lightSphereDirectShader.setUniforms({
+          uLightPosition: pos,
+          uLightColor: light.color,
+          uLightRange: light.range,
+          uPosition: this.positionTexture,
+          uNormal: this.normalTexture,
+        });
         this.lightSphereDirectShader.setBuffer('position', this.lightSphereBuffer, 3, GL.FLOAT);
-        this.lightSphereDirectShader.setTexture('uPosition', this.positionTexture);
-        this.lightSphereDirectShader.setTexture('uNormal', this.normalTexture);
-
-        GL.uniform3fv(this.lightSphereDirectShader.uniform('uLightPosition'), light.position);
-        GL.uniform3fv(this.lightSphereDirectShader.uniform('uLightColor'), light.color);
-        GL.uniform1f(this.lightSphereDirectShader.uniform('uLightRange'), light.range);
+        // this.lightSphereDirectShader.setTexture('uPosition', this.positionTexture);
+        // this.lightSphereDirectShader.setTexture('uNormal', this.normalTexture);
+        //
+        // GL.uniform3fv(this.lightSphereDirectShader.uniform('uLightPosition'), light.position);
+        // GL.uniform3fv(this.lightSphereDirectShader.uniform('uLightColor'), light.color);
+        // GL.uniform1f(this.lightSphereDirectShader.uniform('uLightRange'), light.range);
 
         GL.drawElements(GL.TRIANGLES, this.lightSphereIndexCount, GL.UNSIGNED_SHORT, 0);
         this.lightSphereDirectShader.unbind();
@@ -512,18 +626,49 @@ export class Renderer {
 
     this.performance.outline = performance.now() - time;
 
+    // SSAO Pass
+    /*
+    const [ssaoMatrix, ssaoNormalMatrix] = Camera.getSSAOMatrices();
+    GL.bindFramebuffer(GL.FRAMEBUFFER, this.ssaoBuffer);
+    this.ssaoShader.bind();
+    this.ssaoShader.setBuffer('position', this.composeBuffer, 2, GL.FLOAT, false);
+    this.ssaoShader.setTexture('uPosition', this.positionTexture);
+    this.ssaoShader.setTexture('uNormal', this.normalTexture);
+    this.ssaoShader.setTexture('uNoise', this.ssaoNoiseTexture);
+    // this.ssaoShader.setTexture('uDepth', this.depthTexture);
+    GL.uniformMatrix4fv(this.ssaoShader.uniform('uViewMat'), false, ssaoMatrix);
+    GL.uniformMatrix3fv(this.ssaoShader.uniform('uNormalMat'), false, ssaoNormalMatrix);
+    GL.uniform3fv(this.ssaoShader.uniform('uKernel'), this.ssaoKernel);
+    GL.uniform2f(
+      this.ssaoShader.uniform('uNoiseScale'),
+      screenSize[0] / this.SSAO_NOISE_SIZE,
+      screenSize[1] / this.SSAO_NOISE_SIZE,
+    );
+    GL.bindBuffer(GL.ELEMENT_ARRAY_BUFFER, this.composeIndexBuffer);
+    GL.drawElements(GL.TRIANGLES, 6, GL.UNSIGNED_SHORT, 0);
+    GL.bindBuffer(GL.ELEMENT_ARRAY_BUFFER, null);
+    this.ssaoShader.unbind();
+
+     */
+
+    // console.debug(
+    //   this.ssaoShader.uniform('uNoiseScale'),
+    //   screenSize[0] / this.SSAO_NOISE_SIZE,
+    //   screenSize[1] / this.SSAO_NOISE_SIZE,
+    // );
+
     // Composition pass
     time = performance.now();
     GL.bindFramebuffer(GL.FRAMEBUFFER, null);
 
     this.composeShader.bind();
     this.composeShader.setBuffer('position', this.composeBuffer, 2, GL.FLOAT, false);
-
     this.composeShader.setTexture('uDiffuse', this.diffuseTexture);
     this.composeShader.setTexture('uLightmap', this.lightMapTexture);
     this.composeShader.setTexture('uPosition', this.positionTexture);
     this.composeShader.setTexture('uNormal', this.normalTexture);
     this.composeShader.setTexture('uOutline', this.outlineTexture);
+    this.composeShader.setTexture('uSSAO', this.ssaoTexture);
 
     GL.uniform3fv(this.composeShader.uniform('uPlayer'), sortCenter);
     GL.uniform2fv(this.composeShader.uniform('uScreenSize'), screenSize);

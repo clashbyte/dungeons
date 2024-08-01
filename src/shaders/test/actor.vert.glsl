@@ -41,6 +41,7 @@ void main() {
 
     mat3 skinNormalMat = mat3(transpose(inverse(skinMat)));
     vNormal = normalize(normalMat * skinNormalMat * normal);
+    vNormal = normalize(viewNormalMat * vNormal);
 
     vec4 pos = vec4(position, 1.0);
     pos = skinMat * pos;

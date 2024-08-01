@@ -2,7 +2,7 @@ import { mat4, quat, vec3 } from 'gl-matrix';
 import SKIN_DATA from '../assets/skins/skin.set?url';
 import { GL } from '../core/GL.ts';
 import { BinaryReader } from '../helpers/BinaryReader.ts';
-import { createIndexBuffer, createVertexBuffer } from '../helpers/GLHelpers.ts';
+import { createIndexBuffer, createTexture, createVertexBuffer } from '../helpers/GLHelpers.ts';
 
 export interface SkinSurface {
   vertices: WebGLBuffer;
@@ -51,6 +51,13 @@ export interface SkinAnimation {
   };
 }
 
+interface SkinTextureDef {
+  image: HTMLImageElement;
+  width: number;
+  height: number;
+  texture: WebGLTexture | null;
+}
+
 export class SkinManager {
   private static rawBuffer: ArrayBuffer;
 
@@ -61,6 +68,8 @@ export class SkinManager {
   private static readonly meshes: { [key: string]: MeshDef } = {};
 
   private static readonly animations: { [key: string]: SkinAnimation } = {};
+
+  private static readonly textures: { [key: string]: SkinTextureDef } = {};
 
   public static async preload() {
     const [buffer] = await Promise.all([
@@ -142,6 +151,31 @@ export class SkinManager {
           anim.nodes[nodeName] = frames;
         }
       }
+
+      const texCount = f.readShort();
+      for (let i = 0; i < texCount; i++) {
+        const name = f.readString();
+        const size = f.readInt();
+
+        const blob = new Blob([f.readArrayBytes(size)]);
+        const urlCreator = window.URL || window.webkitURL;
+        const url = urlCreator.createObjectURL(blob);
+
+        const item: SkinTextureDef = {
+          texture: null,
+          image: new Image(),
+          width: 1,
+          height: 1,
+        };
+        item.image.onload = () => {
+          item.texture = createTexture(item.image, false);
+          item.width = item.image.width;
+          item.height = item.image.height;
+        };
+        item.image.src = url;
+
+        this.textures[name] = item;
+      }
     }
   }
 
@@ -156,6 +190,10 @@ export class SkinManager {
 
   public static getAnimation(name: string) {
     return this.animations[name];
+  }
+
+  public static getTexture(name: string) {
+    return this.textures[name];
   }
 
   private static cacheSkin(name: string) {

@@ -2,13 +2,22 @@ import Alea from 'alea';
 import {
   FloorHint,
   FloorHintType,
+  LevelType,
   SimpleRoomDecorator,
   WallHint,
   WallHintType,
-} from '../decoration/SimpleRoomDecorator.ts';
-import { GeneratorLink, GeneratorRoom, GeneratorTileType } from '../dungeon/DungeonGenerator.ts';
-import { MeshOutlinePart } from '../trimesh/RoomTriangulator.ts';
-import { DecoratedLink, DecoratedRoom, DecoratedTile, RoomGenerator } from './RoomGenerator.ts';
+} from '@/generators/decoration/SimpleRoomDecorator.ts';
+import {
+  GeneratorLink,
+  GeneratorRoom,
+  GeneratorTileType,
+} from '@/generators/dungeon/DungeonGenerator.ts';
+import {
+  DecoratedLink,
+  DecoratedRoom,
+  DecoratedTile,
+  RoomGenerator,
+} from '@/generators/room/RoomGenerator.ts';
 
 enum FloorType {
   Normal,
@@ -39,7 +48,7 @@ export class SimpleRoomGenerator extends RoomGenerator {
 
   public constructor(
     seed: string,
-    theme: number,
+    theme: LevelType,
     map: GeneratorTileType[][],
     rooms: GeneratorRoom[],
     links: GeneratorLink[],
@@ -67,25 +76,25 @@ export class SimpleRoomGenerator extends RoomGenerator {
 
   private buildRoom(room: GeneratorRoom): DecoratedRoom {
     const tiles: DecoratedTile[] = [];
-    const [floorHints, wallHints] = this.decorator.makeHintMap(room);
+    const scenery: DecoratedTile[] = [];
+    const [floorHints, wallHints, sceneryTiles, roundCorners] = this.decorator.makeHintMap(room);
     for (let y = 0; y < room.height; y++) {
       for (let x = 0; x < room.width; x++) {
-        const cellTiles = this.wrapTile(x, y, room.x, room.y, floorHints, wallHints);
+        const cellTiles = this.wrapTile(x, y, room.x, room.y, floorHints, wallHints, roundCorners);
         if (cellTiles.length > 0) {
           tiles.push(...cellTiles);
         }
       }
     }
 
-    const outlines: MeshOutlinePart[] = [];
-    if (tiles.length > 0) {
-      outlines.push(...this.buildOutlines(tiles));
+    for (const hint of sceneryTiles) {
+      scenery.push(hint);
     }
 
     return {
       generatorRoom: room,
+      sceneryTiles: scenery,
       tiles,
-      outlines: outlines.length > 0 ? outlines : undefined,
     };
   }
 
@@ -145,15 +154,9 @@ export class SimpleRoomGenerator extends RoomGenerator {
       }
     }
 
-    const outlines: MeshOutlinePart[] = [];
-    if (tiles.length > 0) {
-      outlines.push(...this.buildOutlines(tiles));
-    }
-
     return {
       generatorLink: link,
       tiles,
-      outlines: outlines.length > 0 ? outlines : undefined,
     };
   }
 
@@ -164,6 +167,7 @@ export class SimpleRoomGenerator extends RoomGenerator {
     roomY: number,
     floorHints: FloorHint[][],
     wallHints: WallHint[][],
+    roundCorners: boolean,
   ): DecoratedTile[] {
     const tiles: DecoratedTile[] = [];
     const rx = x + roomX;
@@ -231,30 +235,34 @@ export class SimpleRoomGenerator extends RoomGenerator {
             //   angle: 0,
             // });
             break;
-          case FloorHintType.SceneryTile:
-            tiles.push(
-              ...hint.tiles.map((h) => ({
-                x: x + (h.x ?? 0),
-                y: y + (h.y ?? 0),
-                name: h.name,
-                height: h.height,
-                group: h.group,
-                variant: h.variant,
-                angle: h.angle,
-              })),
-            );
-            break;
+          // case FloorHintType.SceneryTile:
+          //   tiles.push(
+          //     ...hint.tiles.map((h) => ({
+          //       x: x + (h.x ?? 0),
+          //       y: y + (h.y ?? 0),
+          //       name: h.name,
+          //       height: h.height,
+          //       scale: h.scale ?? 1,
+          //       group: h.group,
+          //       variant: h.variant,
+          //       angle: h.angle,
+          //       scenery: true,
+          //     })),
+          //   );
+          //   break;
         }
       }
 
-      tiles.push({
-        x,
-        y,
-        name: 'floor',
-        group: this.theme,
-        variant: floorVariant,
-        angle: Math.floor(this.random() * 4),
-      });
+      if (hint.type !== FloorHintType.SkipMesh) {
+        tiles.push({
+          x,
+          y,
+          name: 'floor',
+          group: this.theme,
+          variant: floorVariant,
+          angle: Math.floor(this.random() * 4),
+        });
+      }
 
       if (up && !upDoor) {
         let angle: 0 | 1 | 2 | 3 = 0;
@@ -423,7 +431,7 @@ export class SimpleRoomGenerator extends RoomGenerator {
           angle: 0,
           name: 'wall',
           group: this.theme,
-          variant: WallType.InsideCorner,
+          variant: roundCorners ? WallType.RoundInsideCorner : WallType.InsideCorner,
         });
       }
 
@@ -434,7 +442,7 @@ export class SimpleRoomGenerator extends RoomGenerator {
           angle: 1,
           name: 'wall',
           group: this.theme,
-          variant: WallType.InsideCorner,
+          variant: roundCorners ? WallType.RoundInsideCorner : WallType.InsideCorner,
         });
       }
 
@@ -445,7 +453,7 @@ export class SimpleRoomGenerator extends RoomGenerator {
           angle: 2,
           name: 'wall',
           group: this.theme,
-          variant: WallType.InsideCorner,
+          variant: roundCorners ? WallType.RoundInsideCorner : WallType.InsideCorner,
         });
       }
 
@@ -456,94 +464,11 @@ export class SimpleRoomGenerator extends RoomGenerator {
           angle: 3,
           name: 'wall',
           group: this.theme,
-          variant: WallType.InsideCorner,
+          variant: roundCorners ? WallType.RoundInsideCorner : WallType.InsideCorner,
         });
       }
     }
 
     return tiles;
-  }
-
-  private buildOutlines(tiles: DecoratedTile[]) {
-    const lines: MeshOutlinePart[] = [];
-
-    for (const tile of tiles) {
-      if (
-        tile.name === 'wall' &&
-        tile.variant !== WallType.ThinJoin &&
-        tile.variant !== WallType.Door
-      ) {
-        const sub: MeshOutlinePart[] = [];
-        switch (tile.variant as WallType) {
-          case WallType.Normal:
-          case WallType.NormalWithHole:
-          case WallType.Torch:
-          case WallType.NormalAccent:
-            sub.push({
-              x1: -0.5,
-              y1: 0,
-              x2: 0.5,
-              y2: 0,
-            });
-            break;
-
-          case WallType.OutsideCorner:
-            sub.push(
-              {
-                x1: 0,
-                y1: 0.5,
-                x2: 0,
-                y2: 0,
-              },
-              {
-                x1: 0,
-                y1: 0,
-                x2: 0.5,
-                y2: 0,
-              },
-            );
-            break;
-
-          case WallType.InsideCorner:
-            sub.push(
-              {
-                x1: 0,
-                y1: 0,
-                x2: 0,
-                y2: -0.5,
-              },
-              {
-                x1: -0.5,
-                y1: 0,
-                x2: 0,
-                y2: 0,
-              },
-            );
-            break;
-        }
-
-        if (sub.length !== 0) {
-          const rot = (Math.PI / 2) * ((tile.angle ?? 0) + 2);
-          const sin = Math.sin(rot);
-          const cos = Math.cos(rot);
-
-          for (const l of sub) {
-            const x1 = l.x1;
-            const y1 = l.y1;
-            const x2 = l.x2;
-            const y2 = l.y2;
-
-            lines.push({
-              x1: x1 * cos - y1 * sin + tile.x + 0.5,
-              y1: x1 * sin + y1 * cos + tile.y + 0.5,
-              x2: x2 * cos - y2 * sin + tile.x + 0.5,
-              y2: x2 * sin + y2 * cos + tile.y + 0.5,
-            });
-          }
-        }
-      }
-    }
-
-    return lines;
   }
 }

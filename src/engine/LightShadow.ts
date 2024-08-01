@@ -1,4 +1,4 @@
-import { mat4, vec3 } from 'gl-matrix';
+import { mat3, mat4, vec3 } from 'gl-matrix';
 import { GL } from '../core/GL.ts';
 import { Shader } from './Shader.ts';
 
@@ -30,6 +30,8 @@ const CUBE_OFFSET: [number, number][] = [
   [3, 0],
   [1, 0],
 ];
+
+const EMPTY_NORMAL = mat3.identity(mat3.create());
 
 /**
  * Internal class for light shadow buffer
@@ -218,8 +220,8 @@ export class LightShadow {
    * Setup shadow uniforms
    * @param shader
    */
-  public setup(shader: Shader) {
-    GL.uniform3fv(shader.uniform('uLightPosition'), this.localPosition);
+  public setup(shader: Shader, position: vec3) {
+    GL.uniform3fv(shader.uniform('uLightPosition'), position);
     GL.uniform3fv(shader.uniform('uLightColor'), this.localColor);
     GL.uniform1f(shader.uniform('uLightRange'), this.localRange);
     shader.setTexture('uShadowMap', this.depthTexture);
@@ -252,7 +254,7 @@ export class LightShadow {
     GL.viewport(ox, oy, SHADOW_SIZE, SHADOW_SIZE);
     GL.scissor(ox, oy, SHADOW_SIZE, SHADOW_SIZE);
     GL.clear(GL.DEPTH_BUFFER_BIT);
-    Shader.updateCamera(this.viewMatrix[face], this.projMatrix);
+    Shader.updateCamera(this.viewMatrix[face], this.projMatrix, EMPTY_NORMAL);
   }
 
   /**

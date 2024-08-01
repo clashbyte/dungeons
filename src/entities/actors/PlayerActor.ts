@@ -1,13 +1,11 @@
-import { GL } from '../../core/GL.ts';
-import { RenderTask } from '../../engine/Renderer.ts';
-import { Shader } from '../../engine/Shader.ts';
-import { SkinAnimator } from '../../engine/SkinAnimator.ts';
-import { Skin, SkinManager } from '../../managers/SkinManager.ts';
-import { TilesManager } from '../../managers/TilesManager.ts';
-
-import ActorFrag from '../../shaders/test/actor.frag.glsl?raw';
-import ActorVert from '../../shaders/test/actor.vert.glsl?raw';
 import { Actor } from './Actor.ts';
+import { GL } from '@/core/GL.ts';
+import { RenderTask } from '@/engine/Renderer.ts';
+import { Shader } from '@/engine/Shader.ts';
+import { SkinAnimator } from '@/engine/SkinAnimator.ts';
+import { Skin, SkinManager } from '@/managers/SkinManager.ts';
+import ActorFrag from '@/shaders/test/actor.frag.glsl?raw';
+import ActorVert from '@/shaders/test/actor.vert.glsl?raw';
 
 /**
  * Test player actor
@@ -43,11 +41,13 @@ export class PlayerActor extends Actor {
   public constructor() {
     super();
     if (!PlayerActor.shader) {
-      PlayerActor.shader = new Shader(ActorFrag, ActorVert, true);
+      PlayerActor.shader = new Shader(ActorFrag, ActorVert, {
+        deferred: true,
+      });
     }
-    this.skin = SkinManager.getSkin('archer');
+    this.skin = SkinManager.getSkin('MalePlayer');
     this.animator = new SkinAnimator(this.skin);
-    this.animator.play('Armature.001|mixamo.com|Layer0', 1);
+    this.animator.play('HumanIdle', 1);
     this.running = false;
 
     this.scale = 0.5;
@@ -77,11 +77,7 @@ export class PlayerActor extends Actor {
   public setRunning(run: boolean) {
     if (this.running !== run) {
       this.running = run;
-      this.animator.play(
-        run ? 'Armature|mixamo.com|Layer0' : 'Armature.001|mixamo.com|Layer0',
-        1,
-        0.2,
-      );
+      this.animator.play(run ? 'HumanRun' : 'HumanIdle', 1, 0.2);
     }
   }
 
@@ -91,7 +87,7 @@ export class PlayerActor extends Actor {
    */
   private render() {
     const shader = PlayerActor.shader;
-    const [diffuse] = TilesManager.getTextures();
+    const diffuse = SkinManager.getTexture('MalePlayerDiffuse');
 
     shader.updateMatrix(this.matrix);
 
@@ -102,7 +98,9 @@ export class PlayerActor extends Actor {
       shader.setBuffer('uv', surf.vertices, 2, GL.FLOAT, false, 32, 6 * 4);
       shader.setBuffer('joints', surf.joints!, 4, GL.UNSIGNED_BYTE, false, 0, 0, true);
       shader.setBuffer('weights', surf.weights!, 4, GL.FLOAT, false);
-      shader.setTexture('uDiffuse', diffuse);
+      if (diffuse && diffuse.texture) {
+        shader.setTexture('uDiffuse', diffuse.texture);
+      }
       shader.setTexture('uSkinMatrices', this.animator.texture);
 
       GL.uniformMatrix3fv(shader.uniform('normalMat'), false, this.normalMatrix);

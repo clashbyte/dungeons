@@ -1,4 +1,5 @@
 import { vec2, vec3, vec4 } from 'gl-matrix';
+import { ClickableObject } from '@/entities/ClickableObject.ts';
 import { Controls } from '../core/Controls.ts';
 import { screenSize } from '../core/GL.ts';
 import { Camera } from '../engine/Camera.ts';
@@ -8,7 +9,6 @@ import { Screen } from '../engine/Screen.ts';
 import { PlayerActor } from '../entities/actors/PlayerActor.ts';
 import { Door } from '../entities/objects/Door.ts';
 import { LevelObject } from '../entities/objects/LevelObject.ts';
-import { DebugDungeonGenerator } from '../generators/dungeon/DebugDungeonGenerator.ts';
 import { DungeonGenerator, GeneratorTileType } from '../generators/dungeon/DungeonGenerator.ts';
 import { RoomGenerator } from '../generators/room/RoomGenerator.ts';
 import { SimpleRoomGenerator } from '../generators/room/SimpleRoomGenerator.ts';
@@ -17,6 +17,8 @@ import { SimpleRoomTriangulator } from '../generators/trimesh/SimpleRoomTriangul
 import { intersectRayBox, intersectRayPlane } from '../helpers/Intersections.ts';
 import { VisibilityManager } from '../managers/VisibilityManager.ts';
 import { DungeonMesh } from '../rendering/dungeon/DungeonMesh.ts';
+import { LevelType } from '@/generators/decoration/SimpleRoomDecorator.ts';
+import { SimpleDungeonGenerator } from '@/generators/dungeon/SimpleDungeonGenerator.ts';
 
 const FORCE_SEED: string | null = null; // '1701264374046';
 
@@ -48,13 +50,13 @@ export class GameTestScreen extends Screen {
 
   private readonly navigation: Navigation;
 
-  public constructor(private readonly theme: number = 2) {
+  public constructor(private readonly theme: LevelType = 0) {
     super();
 
     const seed = FORCE_SEED !== null ? FORCE_SEED : (+new Date()).toString();
 
-    // this.generator = new SimpleDungeonGenerator(seed, 30, 30);
-    this.generator = new DebugDungeonGenerator(seed, 30, 30);
+    this.generator = new SimpleDungeonGenerator(seed, 30, 30);
+    // this.generator = new DebugDungeonGenerator(seed, 30, 30);
     this.generator.generate();
 
     this.roomGenerator = new SimpleRoomGenerator(
@@ -96,7 +98,14 @@ export class GameTestScreen extends Screen {
           const pz = link.y + (link.vertical ? i : 0);
           const idx1 = this.generator.getRooms().indexOf(link.room1);
           const idx2 = this.generator.getRooms().indexOf(link.room2);
-          const door = new Door(px, pz, link.vertical, theme, idx1, idx2);
+          const door = new Door(
+            px,
+            pz,
+            link.vertical,
+            theme === LevelType.Cave ? 1 : theme,
+            idx1,
+            idx2,
+          );
 
           this.objects.push(door);
           doors.push(door);
@@ -127,31 +136,39 @@ export class GameTestScreen extends Screen {
     let dist = Infinity;
     this.hoverObject = null;
     for (const obj of this.objects) {
-      const box = obj.getBox();
-      if (box) {
-        if (intersectRayBox(point, origin, direction, box[0], box[1])) {
-          const sqDist = vec3.sqrDist(origin, point);
-          if (sqDist < dist) {
-            dist = sqDist;
-            this.hoverObject = obj;
+      if ('getBox' in obj && typeof obj.getBox === 'function') {
+        const box = (obj as unknown as ClickableObject).getBox();
+        if (box) {
+          if (intersectRayBox(point, origin, direction, box[0], box[1])) {
+            const sqDist = vec3.sqrDist(origin, point);
+            if (sqDist < dist) {
+              dist = sqDist;
+              this.hoverObject = obj;
+            }
           }
         }
       }
     }
 
     if (Controls.mouseHit()) {
-      if (this.hoverObject) {
-        const [target, radius] = this.hoverObject.getDestination();
+      if (
+        this.hoverObject &&
+        'getDestination' in this.hoverObject &&
+        typeof this.hoverObject.getDestination === 'function'
+      ) {
+        const [target, radius] = (this.hoverObject as unknown as ClickableObject).getDestination();
         this.navigatePlayer(target, radius, this.hoverObject);
       } else if (intersectRayPlane(point, origin, direction, [0, 1, 0], 0)) {
         this.navigatePlayer(vec2.fromValues(point[0], point[2]), 0, null);
       }
     }
+
+    this.staticMesh.update(this.player.position, delta);
   }
 
   public render(): void {
     const tasks: RenderTask[] = [
-      ...this.staticMesh.getRenderTasks(this.player.position), //
+      ...this.staticMesh.getRenderTasks(), //
       ...this.player.getRenderTask(),
       ...this.objects.flatMap((obj) =>
         obj.getRenderTask().map((t) => ({
@@ -212,8 +229,12 @@ export class GameTestScreen extends Screen {
       if (dist <= this.playerPath.radius[c]) {
         this.playerPath.current++;
         if (this.playerPath.current === this.playerPath.points.length) {
-          if (this.playerPath.activate) {
-            this.playerPath.activate.activate(this.player.position);
+          if (
+            this.playerPath.activate &&
+            'activate' in this.playerPath.activate &&
+            typeof this.playerPath.activate.activate === 'function'
+          ) {
+            (this.playerPath.activate as unknown as ClickableObject).activate(this.player.position);
           }
           this.playerPath = null;
           moving = false;
@@ -236,7 +257,7 @@ export class GameTestScreen extends Screen {
 
   private navigatePlayer(target: vec2, radius: number, targetObject: LevelObject | null) {
     const path = this.navigation.buildPath(this.player.position, target, radius, targetObject);
-    if (path) {
+    if (path && this.navigation.pathLength(this.player.position, path) < 8) {
       this.playerPath = {
         current: 0,
         points: path.map((n) => n.position),

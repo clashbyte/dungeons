@@ -1,4 +1,5 @@
 import { mat3, mat4, quat, vec2, vec3 } from 'gl-matrix';
+import { ClickableObject } from '@/entities/ClickableObject.ts';
 import { GL } from '../../core/GL.ts';
 import { RenderTask } from '../../engine/Renderer.ts';
 import { Shader } from '../../engine/Shader.ts';
@@ -31,7 +32,7 @@ const DOOR_SUBROT = [
 /**
  * Level door
  */
-export class Door extends LevelObject {
+export class Door extends LevelObject implements ClickableObject {
   /**
    * Cached meshes for every dungeon theme
    * @private
@@ -140,7 +141,9 @@ export class Door extends LevelObject {
       }
     }
     if (!Door.shader) {
-      Door.shader = new Shader(TileFrag, TileVert, true);
+      Door.shader = new Shader(TileFrag, TileVert, {
+        deferred: true,
+      });
     }
   }
 

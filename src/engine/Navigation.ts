@@ -160,6 +160,20 @@ export class Navigation {
   }
 
   /**
+   * Compute path length
+   * @param origin
+   * @param path
+   */
+  public pathLength(origin: vec2, path: PathNode[]) {
+    let sum = 0;
+    for (let i = 0; i < path.length; i++) {
+      sum += vec2.distance(path[i].position, i === 0 ? origin : path[i - 1].position);
+    }
+
+    return sum;
+  }
+
+  /**
    * Find all available paths from room to room
    * @param from
    * @param to

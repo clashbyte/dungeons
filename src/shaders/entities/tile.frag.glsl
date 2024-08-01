@@ -19,7 +19,7 @@ void main() {
     vec3 normal = normalize(TBN * normalTex);
 
     fragDiffuse = vec4(diffuse * uReveal, 1.0);
-    fragPosition = vec4(vWorldPos, 1.0);
+    fragPosition = vec4(vLocalPos, 1.0);
     fragNormal = vec4(normal, 1.0);
     fragDistance = vec4(length(vLocalPos));
 }
