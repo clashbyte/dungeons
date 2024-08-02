@@ -149,7 +149,7 @@ export class SimpleRoomDecorator {
   }
 
   private placeTorches(room: GeneratorRoom, floor: FloorHint[][], walls: WallHint[][]) {
-    const BLOCK_SIZE = 8;
+    const BLOCK_SIZE = 5;
     const blocksX = Math.ceil(room.width / BLOCK_SIZE);
     const blocksY = Math.ceil(room.height / BLOCK_SIZE);
     const sizeX = Math.ceil(room.width / blocksX);

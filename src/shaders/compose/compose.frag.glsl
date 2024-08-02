@@ -7,6 +7,7 @@ uniform sampler2D uNormal;
 uniform sampler2D uOutline;
 uniform sampler2D uSSAO;
 uniform vec2 uScreenSize;
+uniform vec3 uAmbient;
 
 uniform vec4 uOutlineColor;
 uniform vec3 uPlayer;
@@ -111,21 +112,23 @@ void main() {
     vec4 lightmap = texture(uLightmap, vUv);
     vec3 position = texture(uPosition, vUv).rgb;
     vec3 normal = texture(uNormal, vUv).rgb;
+    float ssao = texture(uSSAO, vUv).r;
     float outline = sobel(1.0 / uScreenSize, vUv);
 
     vec3 playerArea = position - uPlayer;
-    float playerFactor = 1.0;//ceil(clamp(-dot(normalize(playerArea), normal), 0.0, 1.0));
+    float playerFactor = 0.0;//ceil(clamp(-dot(normalize(playerArea), normal), 0.0, 1.0));
 //    playerFactor = 1.0 - pow(1.0 - playerFactor, 3.0);
 
 
     lightmap.rgb += vec3(0.1, 0.1, 0.1) * smoothstep(5.0, 2.0, length(playerArea)) * playerFactor;
 //    lightmap.rgb = ((lightmap.rgb - 0.5) * 1.1 + 0.5) * 1.05;
+//    lightmap.rgb = vec3(1.0);
 
-    vec3 final = diffuse.rgb * mix(vec3(1.0), lightmap.rgb, diffuse.a);
+    vec3 final = diffuse.rgb * mix(vec3(1.0), lightmap.rgb + uAmbient * ssao, diffuse.a);
     final = uchimura(final);
 
     gl_FragColor = vec4(mix(final, uOutlineColor.rgb, uOutlineColor.a * outline), 1.0);
 
-//    gl_FragColor.rgb = mix(diffuse.rgb, lightmap.rgb, step(0.5, vUv.x));
+//    gl_FragColor.rgb = mix(diffuse.rgb, texture(uSSAO, vUv).rrr, step(0.5, vUv.x));
 //    gl_FragColor.rgb = lightmap.rgb;
 }

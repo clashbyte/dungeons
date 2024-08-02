@@ -1,5 +1,4 @@
 import { mat3, mat4, quat, vec3, vec4 } from 'gl-matrix';
-import { setDebugText } from '../core/DebugBadge.ts';
 import { GL, screenSize } from '../core/GL.ts';
 import { buildSphere } from '../helpers/BuildSphere.ts';
 import { createIndexBuffer, createVertexBuffer } from '../helpers/GLHelpers.ts';
@@ -56,13 +55,13 @@ export class Renderer {
    * Size of a SSAO kernel
    * @private
    */
-  private static readonly SSAO_KERNEL_SIZE = 8;
+  private static readonly SSAO_KERNEL_SIZE = 16;
 
   /**
    * Size of a SSAO random texture
    * @private
    */
-  private static readonly SSAO_NOISE_SIZE = 4;
+  private static readonly SSAO_NOISE_SIZE = 16;
 
   /**
    * G-pass diffuse texture
@@ -234,7 +233,11 @@ export class Renderer {
 
     this.ssaoKernel = [];
     for (let i = 0; i < this.SSAO_KERNEL_SIZE; i++) {
-      const vec = vec3.fromValues(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random());
+      const vec = vec3.fromValues(
+        Math.random() * 2 - 1, //
+        Math.random() * 2 - 1,
+        Math.random(),
+      );
       vec3.normalize(vec, vec);
       vec3.scale(vec, vec, lerp(0.1, 1, Math.random() ** 2));
       this.ssaoKernel.push(vec[0], vec[1], vec[2]);
@@ -439,8 +442,25 @@ export class Renderer {
     outlineColor: vec4 | null,
   ) {
     // Process visible lights
-    let time = performance.now();
-    const start = time;
+    const [lights, shadowLights] = this.lightShadowPass(tasks, sceneLights, sortCenter);
+
+    // G-buffer pass
+    const [projMatrix, viewMatrix, normalMatrix] = Camera.getViewMatrices();
+    const invNormalMatrix = mat3.clone(normalMatrix);
+    mat3.invert(invNormalMatrix, invNormalMatrix);
+    this.deferredGeometryPass(tasks);
+
+    // Lights pass - render point lights
+    this.lightPass(lights, shadowLights, viewMatrix, invNormalMatrix);
+
+    this.outlinePass();
+
+    this.SSAOPass(projMatrix);
+
+    this.composePass(sortCenter, outlineColor);
+  }
+
+  private static lightShadowPass(tasks: RenderTask[], sceneLights: PointLight[], sortCenter: vec3) {
     const lights = sceneLights
       .filter((l) => Camera.sphereCoordsVisible(l.position, l.range))
       .map((l) => ({
@@ -458,15 +478,11 @@ export class Renderer {
         shadowLights.push(i);
       }
     }
-    this.performance.lightSort = performance.now() - time;
-    time = performance.now();
 
     // Shadows pass - compute depth maps
-    this.performance.lightRender.length = 0;
     if (shadowLights.length > 0) {
       GL.enable(GL.SCISSOR_TEST);
       for (let i = 0; i < shadowLights.length; i++) {
-        time = performance.now();
         const shadow = this.shadows[i];
         const light = lights[shadowLights[i]];
         shadow.position = light.position;
@@ -496,19 +512,14 @@ export class Renderer {
             }
           }
         }
-
-        this.performance.lightRender.push(performance.now() - time);
-        time = performance.now();
       }
       GL.disable(GL.SCISSOR_TEST);
     }
 
-    // G-buffer pass
-    const [, viewMatrix, normalMatrix] = Camera.getViewMatrices();
-    const invNormalMatrix = mat3.clone(normalMatrix);
-    mat3.invert(invNormalMatrix, invNormalMatrix);
+    return [lights, shadowLights] as const;
+  }
 
-    time = performance.now();
+  private static deferredGeometryPass(tasks: RenderTask[]) {
     GL.bindFramebuffer(GL.FRAMEBUFFER, this.offscreenBuffer);
     this.setupViewport();
     GL.enable(GL.STENCIL_TEST);
@@ -533,14 +544,17 @@ export class Renderer {
       }
     }
     GL.disable(GL.STENCIL_TEST);
-    this.performance.direct = performance.now() - time;
+  }
 
-    // Lights pass - render point lights
-    time = performance.now();
+  private static lightPass(
+    lights: PointLight[],
+    shadowLights: number[],
+    viewMatrix: mat4,
+    invNormalMatrix: mat3,
+  ) {
     GL.bindFramebuffer(GL.FRAMEBUFFER, this.lightMapBuffer);
     this.setupViewport();
-    GL.clearColor(0.2, 0.2, 0.25, 1.0);
-    // GL.clearColor(1, 1, 1, 1.0);
+    GL.clearColor(0, 0, 0, 1);
     GL.clear(GL.COLOR_BUFFER_BIT);
     GL.depthMask(false);
     GL.stencilMask(0x00);
@@ -592,13 +606,6 @@ export class Renderer {
           uNormal: this.normalTexture,
         });
         this.lightSphereDirectShader.setBuffer('position', this.lightSphereBuffer, 3, GL.FLOAT);
-        // this.lightSphereDirectShader.setTexture('uPosition', this.positionTexture);
-        // this.lightSphereDirectShader.setTexture('uNormal', this.normalTexture);
-        //
-        // GL.uniform3fv(this.lightSphereDirectShader.uniform('uLightPosition'), light.position);
-        // GL.uniform3fv(this.lightSphereDirectShader.uniform('uLightColor'), light.color);
-        // GL.uniform1f(this.lightSphereDirectShader.uniform('uLightRange'), light.range);
-
         GL.drawElements(GL.TRIANGLES, this.lightSphereIndexCount, GL.UNSIGNED_SHORT, 0);
         this.lightSphereDirectShader.unbind();
       }
@@ -608,9 +615,9 @@ export class Renderer {
     GL.cullFace(GL.BACK);
     GL.disable(GL.BLEND);
     GL.depthFunc(GL.LEQUAL);
-    this.performance.lighting = performance.now() - time;
+  }
 
-    time = performance.now();
+  private static outlinePass() {
     GL.bindFramebuffer(GL.FRAMEBUFFER, this.outlineBuffer);
     GL.enable(GL.STENCIL_TEST);
     GL.clearColor(0, 0, 0, 1);
@@ -623,22 +630,20 @@ export class Renderer {
     this.whiteShader.unbind();
     GL.disable(GL.STENCIL_TEST);
     GL.disable(GL.DEPTH_TEST);
+  }
 
-    this.performance.outline = performance.now() - time;
-
-    // SSAO Pass
-    /*
-    const [ssaoMatrix, ssaoNormalMatrix] = Camera.getSSAOMatrices();
+  private static SSAOPass(projMatrix: mat4) {
     GL.bindFramebuffer(GL.FRAMEBUFFER, this.ssaoBuffer);
+    GL.clearColor(1, 1, 1, 1);
+    GL.clear(GL.COLOR_BUFFER_BIT);
     this.ssaoShader.bind();
     this.ssaoShader.setBuffer('position', this.composeBuffer, 2, GL.FLOAT, false);
     this.ssaoShader.setTexture('uPosition', this.positionTexture);
     this.ssaoShader.setTexture('uNormal', this.normalTexture);
     this.ssaoShader.setTexture('uNoise', this.ssaoNoiseTexture);
     // this.ssaoShader.setTexture('uDepth', this.depthTexture);
-    GL.uniformMatrix4fv(this.ssaoShader.uniform('uViewMat'), false, ssaoMatrix);
-    GL.uniformMatrix3fv(this.ssaoShader.uniform('uNormalMat'), false, ssaoNormalMatrix);
-    GL.uniform3fv(this.ssaoShader.uniform('uKernel'), this.ssaoKernel);
+    GL.uniformMatrix4fv(this.ssaoShader.uniform('uProjMat'), false, projMatrix);
+    GL.uniform3fv(this.ssaoShader.uniform('uKernel[0]'), new Float32Array(this.ssaoKernel));
     GL.uniform2f(
       this.ssaoShader.uniform('uNoiseScale'),
       screenSize[0] / this.SSAO_NOISE_SIZE,
@@ -648,17 +653,9 @@ export class Renderer {
     GL.drawElements(GL.TRIANGLES, 6, GL.UNSIGNED_SHORT, 0);
     GL.bindBuffer(GL.ELEMENT_ARRAY_BUFFER, null);
     this.ssaoShader.unbind();
+  }
 
-     */
-
-    // console.debug(
-    //   this.ssaoShader.uniform('uNoiseScale'),
-    //   screenSize[0] / this.SSAO_NOISE_SIZE,
-    //   screenSize[1] / this.SSAO_NOISE_SIZE,
-    // );
-
-    // Composition pass
-    time = performance.now();
+  private static composePass(sortCenter: vec3, outlineColor: vec4 | null) {
     GL.bindFramebuffer(GL.FRAMEBUFFER, null);
 
     this.composeShader.bind();
@@ -671,6 +668,7 @@ export class Renderer {
     this.composeShader.setTexture('uSSAO', this.ssaoTexture);
 
     GL.uniform3fv(this.composeShader.uniform('uPlayer'), sortCenter);
+    GL.uniform3f(this.composeShader.uniform('uAmbient'), 0.4, 0.4, 0.5);
     GL.uniform2fv(this.composeShader.uniform('uScreenSize'), screenSize);
     if (outlineColor) {
       GL.uniform4fv(this.composeShader.uniform('uOutlineColor'), outlineColor);
@@ -680,23 +678,6 @@ export class Renderer {
     GL.drawElements(GL.TRIANGLES, 6, GL.UNSIGNED_SHORT, 0);
     GL.bindBuffer(GL.ELEMENT_ARRAY_BUFFER, null);
     this.composeShader.unbind();
-    this.performance.compose = performance.now() - time;
-    this.performance.total = performance.now() - start;
-
-    setDebugText(
-      [
-        `Overall: ${this.performance.total.toFixed(1)}ms`, //
-        `Sorting: ${this.performance.lightSort.toFixed(1)}ms`, //
-        `Lights: ${this.performance.lightRender
-          .reduce((prev, current) => prev + current, 0)
-          .toFixed(1)}ms`, //
-
-        `G-pass: ${this.performance.direct.toFixed(1)}ms`, //
-        `Lights: ${this.performance.lighting.toFixed(1)}ms`, //
-        `Outline: ${this.performance.outline.toFixed(1)}ms`, //
-        `Compose: ${this.performance.compose.toFixed(1)}ms`, //
-      ].join('\n'),
-    );
   }
 
   /**

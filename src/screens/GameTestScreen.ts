@@ -50,7 +50,7 @@ export class GameTestScreen extends Screen {
 
   private readonly navigation: Navigation;
 
-  public constructor(private readonly theme: LevelType = 0) {
+  public constructor(private readonly theme: LevelType = 3) {
     super();
 
     const seed = FORCE_SEED !== null ? FORCE_SEED : (+new Date()).toString();
